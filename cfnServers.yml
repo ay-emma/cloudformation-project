@@ -1,0 +1,143 @@
+Description: >
+  Adedokun Emmanuel / Udacity project 2  
+
+Parameters: 
+  EnvironmentName: 
+    Description: Environment name that will be prefixed to resource names
+    Type: String
+  
+  AmiId:
+    Description: Template string for autoscaling ami id
+    Type: String
+  
+  AutoScalingServerType:
+    Description: Instance type for autoscalinggroup
+    Type: String 
+  
+
+Resources:
+  LBSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http traffic to our load balancer
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${EnvironmentName}-VPCID
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+
+  WebServersSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our hosts and SSH from local only
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+
+  WebServerLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update
+          apt-get install apache2 -y
+          mv /var/www/html/index.html /var/www/html/index_old.html
+          wget -P /var/www/html https://udacityproject2116814101.s3.us-west-2.amazonaws.com/index.html
+          systemctl start apache2.service
+      ImageId: !Ref AmiId
+      SecurityGroups:
+        - Ref: WebServersSecGroup
+      InstanceType: !Ref AutoScalingServerType
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sdk"
+          Ebs:
+            VolumeSize: "10"
+
+  WebServiceAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub ${EnvironmentName}-PRIV-NETS
+      LaunchConfigurationName:
+        Ref: WebServerLaunchConfig
+      MinSize: "4"
+      MaxSize: "6"
+      TargetGroupARNs:
+        - Ref: WebServerTargetGroup
+
+  WebServerLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - Fn::ImportValue: !Sub ${EnvironmentName}-PUB-SN1
+        - Fn::ImportValue: !Sub ${EnvironmentName}-PUB-SN2
+      SecurityGroups:
+        - Ref: LBSecGroup
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: WebServerTargetGroup
+      LoadBalancerArn:
+        Ref: WebServerLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  AppLoadBalancerListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref WebServerTargetGroup
+      Conditions:
+        - Field: path-pattern
+          Values: [/]
+      ListenerArn: !Ref Listener
+      Priority: 1
+
+  WebServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 15
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 8
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvironmentName}-VPCID
+
+Outputs:
+  LoadBalancerDNSEntry:
+    Description: The DNS endpoint to access the loadbalancer
+    Value: !Sub "http://${WebServerLoadBalancer.DNSName}"
+    Export:
+          Name: !Sub ${EnvironmentName}-lbUrl
