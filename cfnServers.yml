@@ -124,7 +124,7 @@ Resources:
   WebServerTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 15
+      HealthCheckIntervalSeconds: 16
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 8
@@ -141,3 +141,5 @@ Outputs:
     Value: !Sub "http://${WebServerLoadBalancer.DNSName}"
     Export:
           Name: !Sub ${EnvironmentName}-lbUrl
+
+# link to the working project => cfnSe-WebSe-WTUXF1OG0DYZ-736711671.us-west-2.elb.amazonaws.com
